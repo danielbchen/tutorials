@@ -5,4 +5,32 @@ date: "`r Sys.Date()`"
 output: pdf_document
 ---
 
-# Background
+# Motivation
+A common practice in survey research is to weight the data so that the demographic composition of our sample matches our population of interest. This is critical because audiences such as Black urban voters hold different views than White rural voters. We need to ensure that the proportion of Black urban voters in our sample matches those proportion of Black urban voters in the United States otherwise we risk either over-emphasizing (when the sample proportion is greater than the population proportion) or under-emphasizing (when the sample proportion is less than the population proportion) the voices of Black urban voters.
+
+We need to also consider practical reasons for weighting. When fielding a survey, there are hard to reach audiences from non-probability samples. Young men are the least likely cohort to self-select into an online survey panel. Given unlimited time in the field and resources (cost per interview), we could theoretical collect a desired N-size that proportionally reflects the true population N. 
+
+
+# Libraries
+``` {r Loading Libraries, inlcude=TRUE}
+packages <- c('tidyverse', 'tidycensus', 'anesrake')
+purrr::walk(
+  .x = packages,
+  .f = function(pkg) {
+    tryCatch(
+      expr = {
+        pkg_path <- find.package(package = pkg)
+        if (length(pkg_path > 0)) {
+          message(glue::glue('{pkg} package already installed!'))
+        }
+      },
+      error = function(cond) {
+        message(
+          glue::glue('{pkg} package does not exist. Attempting to download.')
+        )
+        install.packages(pkg)
+      }
+    )
+  }
+)
+```
