@@ -1,0 +1,8 @@
+---
+title: "Understanding Survey Weights"
+author: "Daniel Chen"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+# Background
