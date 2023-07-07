@@ -24,7 +24,7 @@ We should, however, caution, when the weights are too big. Intuitively, we proba
 For this tutorial, we'll double check that we have installed the `tidyverse` (for general data manipulation purposes) suite of packages along with `tidycensus` (for retrieving Census data programatically) and `anesrake` (to apply the actual individual level weights)
 
 ```{r Loading Libraries, inlcude=TRUE}
-packages <- c('tidyverse', 'tidycensus', 'anesrake')
+packages <- c('tidyverse', 'tidycensus', 'anesrake', 'usethis')
 purrr::walk(
   .x = packages,
   .f = function(pkg) {
@@ -157,4 +157,41 @@ proportions_dfs <- purrr::map2(
     
   }
 )
+```
+
+One thing you'll see in the `tidycensus::get_acs()` function is the argument `key = Sys.getenv('CENSUS_API_KEY')`. If you'd like to reproduce this example, you'll need to generate your own Census API key which can be retrieved here: http://api.census.gov/data/key_signup.html. 
+
+As best practice, I do not recommend sharing your API keys publicly, so I hid mine in my `.Renviron` file. You can add your key to your `.Renviron` file by running:
+
+```{r Adding Census API Key, include=TRUE}
+usethis::edit_r_environ()
+```
+
+And then typing in the following into the script that appears in your RStudio session. 
+
+```{r, include=TRUE}
+CENSUS_API_KEY='insert key here and keep the quotation marks'
+```
+
+Save over this file, and restart your RStudio session.
+
+# Creating Fake Data
+
+Now that we have our weighting targets, we'll need some data to actually weight. For this example, we'll create a fake data set containing our weighting variables `gender`, `race`, `hispanicity`, and `education.` 
+
+```{r Creating Fake Data, include=TRUE}
+purrr::map_df(
+  .x = proportions_dfs,
+  .f = function(df) {
+    withr::with_seed(
+      seed = 23,
+      code = {
+        factor(sample(x = df$label, size = 1000, replace = TRUE))
+      }
+    )
+  }
+) |>
+  (\(df) dplyr::mutate(df, case_id = as.character(1:nrow(df))))()
+
+
 ```
