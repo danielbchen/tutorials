@@ -159,6 +159,8 @@ proportions_dfs <- purrr::map2(
 )
 ```
 
+## Detour on Census API Key
+
 One thing you'll see in the `tidycensus::get_acs()` function is the argument `key = Sys.getenv('CENSUS_API_KEY')`. If you'd like to reproduce this example, you'll need to generate your own Census API key which can be retrieved here: http://api.census.gov/data/key_signup.html. 
 
 As best practice, I do not recommend sharing your API keys publicly, so I hid mine in my `.Renviron` file. You can add your key to your `.Renviron` file by running:
@@ -175,12 +177,30 @@ CENSUS_API_KEY='insert key here and keep the quotation marks'
 
 Save over this file, and restart your RStudio session.
 
+# Gut Check
+
+Our `purrr::map2()` call will return the following:
+
+``` {r Print Proportions, include=TRUE, results='asis'}
+purrr::map(.x = proportions_dfs, .f = kableExtra::kable)
+```
+
+At this point, it's worth checking that all the n-sizes for each variable match up, so that we know we're looking at the same sample for each of these variables.
+
+``` {r Check N-sizes, include=TRUE}
+purrr::map(.x = proportions_dfs, .f = function(df) { sum(df$estimate) })
+```
+
+Unfortunately, the N-sizes do not line up, suggesting that we're looking at different subsets of the U.S. population. In reading the documentation, we pulled `education` for those 18 years or older, but because the N-size for `gender` is so much larger, we've likely included people under the age of 18 for the variable. `race` is also different because we've only included people who identify as a single race group. 
+
+Since the purpose of this exercise is an overview of weighting, we won't spend time correcting the differing n-sizes for each group, but if we're pulling data, it's usually best practice to quality check our samples.
+
 # Creating Fake Data
 
 Now that we have our weighting targets, we'll need some data to actually weight. For this example, we'll create a fake data set containing our weighting variables `gender`, `race`, `hispanicity`, and `education.` 
 
 ```{r Creating Fake Data, include=TRUE}
-purrr::map_df(
+data <- purrr::map_df(
   .x = proportions_dfs,
   .f = function(df) {
     withr::with_seed(
@@ -193,5 +213,6 @@ purrr::map_df(
 ) |>
   (\(df) dplyr::mutate(df, case_id = as.character(1:nrow(df))))()
 
-
+# View first ten rows of our fake data
+kableExtra::kable(x = head(data, 10))
 ```
