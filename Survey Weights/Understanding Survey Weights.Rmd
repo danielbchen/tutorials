@@ -6,13 +6,24 @@ output: pdf_document
 ---
 
 # Motivation
+
 A common practice in survey research is to weight the data so that the demographic composition of our sample matches our population of interest. This is critical because audiences such as Black urban voters hold different views than White rural voters. We need to ensure that the proportion of Black urban voters in our sample matches those proportion of Black urban voters in the United States otherwise we risk either over-emphasizing (when the sample proportion is greater than the population proportion) or under-emphasizing (when the sample proportion is less than the population proportion) the voices of Black urban voters.
 
-We need to also consider practical reasons for weighting. When fielding a survey, there are hard to reach audiences from non-probability samples. Young men are the least likely cohort to self-select into an online survey panel. Given unlimited time in the field and resources (cost per interview), we could theoretical collect a desired N-size that proportionally reflects the true population N. 
+We need to also consider practical reasons for weighting. When fielding a survey, there are hard to reach audiences from non-probability samples. Young men are the least likely cohort to self-select into an online survey panel. Given unlimited time in the field and resources (cost per interview), we could theoretical collect a desired N-size that proportionally reflects the true population N.
 
+# What are Weights?
+
+Now that we have the theoretical and logistic motivations for weights, we can ask, what are they actually?
+
+Simply put, they're a numeric value. When a respondent takes a survey, they count for "1 person". But say we under-collected Asian respondents (that is our sample proportion is smaller than the population proportion) - we'll need the Asian respondents we collected in the sample to represent "more people". In the raw data, then, they'll no longer have a "weight" of 1 (which really means the sample is unweighted unless our sample proportions match the population proportions). They can have a weight of 2.4 or 3.789, so that they represent more than one person.
+
+We should, however, caution, when the weights are too big. Intuitively, we probably don't want the opinions of 1 Asian person to count for 25 Asian people. Although that person is Asian, it's unlikely that a singular person can represent an entire group.
 
 # Libraries
-``` {r Loading Libraries, inlcude=TRUE}
+
+For this tutorial, we'll double check that we have installed the `tidyverse` (for general data manipulation purposes) suite of packages along with `tidycensus` (for retrieving Census data programatically) and `anesrake` (to apply the actual individual level weights)
+
+```{r Loading Libraries, inlcude=TRUE}
 packages <- c('tidyverse', 'tidycensus', 'anesrake')
 purrr::walk(
   .x = packages,
@@ -31,6 +42,119 @@ purrr::walk(
         install.packages(pkg)
       }
     )
+  }
+)
+```
+
+# Collecting Target Proportions
+
+What does the true population actually look like? We need a source to weight our sample to such that the percentage of males and females in our sample lines up with the population of interest.
+
+For this example, we want to weight to the general population of the United States, so we'll turn to Census data and retrieve counts of males versus females to derive proportions. We'll also look at race, hispanicity, and education as well because those are commonly used identifiers to weight on.
+
+Of course, we can also weight to arbitrary targets as well. Say we don't have a source of truth to point to, and we decided to weight our sample to 30% male and 70% female. That's also a possibility, but using those targets in this example would not be recommended since we have Census data to point to. In reality, it's unlikely that 3 out of every 10 people are male.
+
+In the snippet below, we use utilize the `tidycensus` package to return our target proportions for weighting.
+
+```{r Retrieve Census Proportions, include=TRUE}
+# Collect vector containing all of the educational attainment variables
+edu_vars <- tidycensus::load_variables(year = 2021, dataset = 'acs1') |>
+  dplyr::filter(
+    grepl(
+      pattern = 'SEX BY AGE BY EDUCATIONAL ATTAINMENT FOR THE', x = concept
+    )
+  ) |>
+  dplyr::pull(name)
+
+# Store all the variables we want to pull into a list
+variable_dict <- list(
+  gender = c('B01001_002', 'B01001_026'),
+  race = glue::glue('B01001{LETTERS[1:5]}_001'),
+  hispanicity = c('B03001_002', 'B03001_003'),
+  education = edu_vars
+)
+
+# Store the survey metadata into its own object
+census_dict <- tidycensus::load_variables(year = 2021, dataset = 'acs1') 
+
+# Iterate over each set of demographic variables, so we can determine proportions
+proportions_dfs <- purrr::map2(
+  .x = variable_dict,
+  .y = names(variable_dict),
+  .f = function(variables, variable_name) {
+    
+    cli::cli_h1('Retrieving summarized data for {variable_name}')
+    
+    # Load in Census data
+    data <- tidycensus::get_acs(
+      geography = 'us',
+      year = 2021,
+      variables = variables,
+      output = 'tidy',
+      variables_filter = list(AGE = 18:99),
+      geometry = FALSE,
+      key = Sys.getenv('CENSUS_API_KEY'),
+      survey = 'acs1',
+      show_call = FALSE
+    )
+    
+    # Join on the census dict so it's clear what variables we're working with
+    data <- data |>
+      dplyr::left_join(census_dict, by = c('variable' = 'name'))
+    
+    # Education and race data pulled need to be cleaned up a bit more than
+    # gender and hispanicity
+    if (variable_name %in% 'education') {
+      proportions <- data |> 
+        dplyr::filter(
+          grepl(
+            pattern = 'Less|9th|High|Some|Associate|Bachelor|Graduate', 
+            x = label
+          )
+        ) |>
+        dplyr::mutate(
+          label = gsub(pattern = '.*\\!\\!', replacement = '', x = label),
+          label = dplyr::case_when(
+            label %in% "Bachelor's degree" ~ 'College',
+            label %in% 'Graduate or professional degree' ~ 'Graduate plus',
+            TRUE ~ 'Less than college'
+          )
+        ) |>
+        dplyr::group_by(label) |>
+        dplyr::summarise(estimate = sum(estimate)) |>
+        dplyr::mutate(proportions = prop.table(estimate))
+    } else if (variable_name %in% 'race') {
+      proportions <- data |>
+        dplyr::mutate(
+          label = gsub(pattern = 'SEX BY AGE \\(', replacement = '', x = concept),
+          label = gsub(pattern = '\\)', replacement = '', x = label),
+          label = gsub(pattern = ' ALONE', replacement = '', label),
+          label = dplyr::case_when(
+            label %in% 'WHITE' ~ 'White',
+            label %in% 'BLACK OR AFRICAN AMERICAN' ~ 'Black',
+            TRUE ~ 'Other'
+          )
+        ) |>
+        dplyr::group_by(label) |>
+        dplyr::summarise(estimate = sum(estimate)) |>
+        dplyr::mutate(proportions = prop.table(estimate))
+    } else {
+      proportions <- data |>
+        dplyr::mutate(proportions = prop.table(estimate)) |>
+        dplyr::select(label, estimate, proportions)
+    }
+    
+    # If any demographic labels aren't clear, clean them up
+    if (sum(grepl(pattern = 'Estimate', x = proportions$label)) > 0) {
+      proportions <- proportions |>
+        dplyr::mutate(
+          label = gsub(pattern = '.*\\!\\!', replacement = '', x = label),
+          label = gsub(pattern = '\\:', replacement = '', x = label)
+        )
+    }
+    
+    return(proportions)
+    
   }
 )
 ```
