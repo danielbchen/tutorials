@@ -165,7 +165,7 @@ One thing you'll see in the `tidycensus::get_acs()` function is the argument `ke
 
 As best practice, I do not recommend sharing your API keys publicly, so I hid mine in my `.Renviron` file. You can add your key to your `.Renviron` file by running:
 
-```{r Adding Census API Key, include=TRUE}
+```{r Adding Census API Key, include=TRUE, eval=FALSE}
 usethis::edit_r_environ()
 ```
 
@@ -211,8 +211,30 @@ data <- purrr::map_df(
     )
   }
 ) |>
-  (\(df) dplyr::mutate(df, case_id = as.character(1:nrow(df))))()
+  (\(df) dplyr::mutate(df, case_id = as.character(1:nrow(df)), wts = 1))()
 
 # View first ten rows of our fake data
 kableExtra::kable(x = head(data, 10))
 ```
+
+Let's see how the proportions randomly shaped out in our sample data.
+
+```{r Getting Sample Proportions from Fake Data, include=TRUE, results='asis'}
+sample_proportions <- purrr::map(
+  .x = names(proportions_dfs),
+  .f = function(demo) {
+    tapply(X = data[['wts']], INDEX = data[[demo]], FUN = sum) |>
+      prop.table() |>
+      as.data.frame() |>
+      tibble::rownames_to_column() |>
+      stats::setNames(nm = c('demo', 'proportion_in_data')) |>
+      dplyr::left_join(proportions_dfs[[demo]], by = c('demo' = 'label')) |>
+      dplyr::rename(target_proportions = proportions) |>
+      dplyr::select(-estimate)
+  }
+) 
+
+purrr::map(.x = sample_proportions, .f = kableExtra::kable)
+```
+
+We can see that our sample proportions are way off from our target proportions. In our data, Hispanics vs. Non-Hispanics are split almost evenly. However, in reality, 81% of the U.S. general population is Hispanic. If we were to analyze data from this sample, we would be way under representing Non-Hispanic voices. 
