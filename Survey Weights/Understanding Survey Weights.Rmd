@@ -217,6 +217,8 @@ data <- purrr::map_df(
 kableExtra::kable(x = head(data, 10))
 ```
 
+Note that we used the `factor()` function when creating our fake data. This will be important later on when we use `anesrake` for weighting because it requires that the columns in our data have factors. 
+
 Let's see how the proportions randomly shaped out in our sample data.
 
 ```{r Getting Sample Proportions from Fake Data, include=TRUE, results='asis'}
@@ -238,3 +240,58 @@ purrr::map(.x = sample_proportions, .f = kableExtra::kable)
 ```
 
 We can see that our sample proportions are way off from our target proportions. In our data, Hispanics vs. Non-Hispanics are split almost evenly. However, in reality, 81% of the U.S. general population is Hispanic. If we were to analyze data from this sample, we would be way under representing Non-Hispanic voices. 
+
+# Applying Weights
+
+We can turn to `anesrake` to apply weights such that our data proportions match the target proportions.
+
+We'll first need to create a list containing our target proportions which should look something like the following, so we can pass it into our weighting function.
+
+```{r Weight List Example, include=TRUE, eval=FALSE}
+target_list <- list(
+  first_demographic_name = c(
+    'first_category' = 'proportion_as_decimal',
+    'second_category' = 'proportion_as_decimal'
+  ),
+  second_demographic_name = c(
+    'first_category' = 'proportion_as_decimal',
+    'second_category' = 'proportion_as_decimal'
+  )
+)
+```
+
+For our weight targets, we'll transform the data we pulled from the Census into the correct format.
+
+```{r Creating Weight Target list, include=TRUE}
+targets <- purrr::map(
+  .x = seq(length(proportions_dfs)),
+  .f = function(number) {
+    lst <- structure(
+      names = as.character(proportions_dfs[[number]]$label),
+      proportions_dfs[[number]]$proportions
+    )
+    return(lst)
+  }
+) |>
+  purrr::set_names(nm = names(proportions_dfs))
+
+targets
+```
+
+Now let's double check that our data is of the class `data.frame` otherwise the `anesrake` function will error out, and then apply the weights!
+
+```{r Apply Weights, include=TRUE}
+if (length(class(data)) != 1) {
+  cli::cli_alert_info('Coercing data into class data.frame')
+  data <- as.data.frame(data)
+  cli::cli_alert_info('data is now of class {class(data)}')
+}
+
+rake_output <- anesrake::anesrake(
+  inputter = targets,    # List containing target proportions
+  dataframe = data,      # Survey data
+  caseid = data$case_id, # Unique identifier for individual respondents
+  type = 'pctlim',       # What types of targets should be used to weight
+  pctlim = 0.05          # Deviation threshold
+)
+```
