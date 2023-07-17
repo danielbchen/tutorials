@@ -295,3 +295,25 @@ rake_output <- anesrake::anesrake(
   pctlim = 0.05          # Deviation threshold
 )
 ```
+
+Our `rake_output` object is a list containing the names of variables we used, the design effect, and data.frames comparing the unweighted proportions to the new weighted proportions. For this tutorial, though, we'll check our weights using our previous method for consistency and diversity in methods. 
+
+```{r Getting Sample Proportions from Fake Data, include=TRUE, results='asis'}
+data$wts <- rake_output$wts
+
+weighted_sample_proportions <- purrr::map(
+  .x = names(proportions_dfs),
+  .f = function(demo) {
+    tapply(X = data[['wts']], INDEX = data[[demo]], FUN = sum) |>
+      prop.table() |>
+      as.data.frame() |>
+      tibble::rownames_to_column() |>
+      stats::setNames(nm = c('demo', 'proportion_in_data')) |>
+      dplyr::left_join(proportions_dfs[[demo]], by = c('demo' = 'label')) |>
+      dplyr::rename(target_proportions = proportions) |>
+      dplyr::select(-estimate)
+  }
+) 
+
+purrr::map(.x = weighted_sample_proportions, .f = kableExtra::kable)
+```
