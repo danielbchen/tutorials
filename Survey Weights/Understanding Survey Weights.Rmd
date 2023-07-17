@@ -200,13 +200,16 @@ Since the purpose of this exercise is an overview of weighting, we won't spend t
 Now that we have our weighting targets, we'll need some data to actually weight. For this example, we'll create a fake data set containing our weighting variables `gender`, `race`, `hispanicity`, and `education.` 
 
 ```{r Creating Fake Data, include=TRUE}
-data <- purrr::map_df(
+data <- purrr::map2_df(
   .x = proportions_dfs,
-  .f = function(df) {
+  .y = list(c(.55, .45), c(.25, .05, .8), c(.75, .25), c(.2, .1, .70)),
+  .f = function(df, probability) {
     withr::with_seed(
-      seed = 23,
+      seed = 25,
       code = {
-        factor(sample(x = df$label, size = 1000, replace = TRUE))
+        factor(
+          sample(x = df$label, size = 1000, replace = TRUE, prob = probability)
+        )
       }
     )
   }
@@ -298,8 +301,8 @@ rake_output <- anesrake::anesrake(
 
 Our `rake_output` object is a list containing the names of variables we used, the design effect, and data.frames comparing the unweighted proportions to the new weighted proportions. For this tutorial, though, we'll check our weights using our previous method for consistency and diversity in methods. 
 
-```{r Getting Sample Proportions from Fake Data, include=TRUE, results='asis'}
-data$wts <- rake_output$wts
+```{r Getting Weighted Sample Proportions from Fake Data, include=TRUE, results='asis'}
+data$wts <- rake_output$weightvec
 
 weighted_sample_proportions <- purrr::map(
   .x = names(proportions_dfs),
