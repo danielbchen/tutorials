@@ -202,7 +202,7 @@ Now that we have our weighting targets, we'll need some data to actually weight.
 ```{r Creating Fake Data, include=TRUE}
 data <- purrr::map2_df(
   .x = proportions_dfs,
-  .y = list(c(.55, .45), c(.25, .05, .8), c(.75, .25), c(.2, .1, .70)),
+  .y = list(c(.55, .45), c(.25, .05, .8), c(.75, .25), c(.22, .08, .70)),
   .f = function(df, probability) {
     withr::with_seed(
       seed = 25,
