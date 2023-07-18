@@ -294,12 +294,11 @@ rake_output <- anesrake::anesrake(
   inputter = targets,    # List containing target proportions
   dataframe = data,      # Survey data
   caseid = data$case_id, # Unique identifier for individual respondents
-  type = 'pctlim',       # What types of targets should be used to weight
-  pctlim = 0.05          # Deviation threshold
+  type = 'nolim',        # What types of targets should be used to weight
 )
 ```
 
-Our `rake_output` object is a list containing the names of variables we used, the design effect, and data.frames comparing the unweighted proportions to the new weighted proportions. For this tutorial, though, we'll check our weights using our previous method for consistency and diversity in methods. 
+Our `rake_output` object is a list containing the names of variables we used, the design effect, and data.frames comparing the unweighted proportions to the new weighted proportions. We can call on `summary(rake_output)` for metrics of interest, but for this tutorial, we'll check our weights using our previous method for consistency and diversity in methods. 
 
 ```{r Getting Weighted Sample Proportions from Fake Data, include=TRUE, results='asis'}
 data$wts <- rake_output$weightvec
@@ -314,7 +313,14 @@ weighted_sample_proportions <- purrr::map(
       stats::setNames(nm = c('demo', 'proportion_in_data')) |>
       dplyr::left_join(proportions_dfs[[demo]], by = c('demo' = 'label')) |>
       dplyr::rename(target_proportions = proportions) |>
-      dplyr::select(-estimate)
+      dplyr::select(-estimate) |>
+      dplyr::mutate(
+        match = ifelse(
+          round(proportion_in_data, 4) == round(target_proportions, 4), 
+          TRUE, 
+          FALSE
+        )
+      )
   }
 ) 
 
