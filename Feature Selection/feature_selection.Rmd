@@ -1,0 +1,195 @@
+---
+title: "Feature Extraction Methods"
+author: "Daniel Chen"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Overview
+
+A common obstacle in machine learning is determining the features that optimize (increase the accuracy of our predictions or explain the relationship between variables better) our model. We can throw everything but the kitchen sink at the model but this leads to a handful of problems:
+
+1. Interpretation: How can we make sense of a model that has 100 explanatory variables?
+2. Computation issues: Running models with a lot of features can be computationally expensive.
+3. Overfitting: The machine learning algorithm may learn the training data very well, but generalize poorly to new samples.
+
+To overcome this problem, practitioners turn to feature selection where a subset of the variables are returned.
+
+The goal if this document is to look at a couple of methods commonly used to select features. It is not intended to be exhaustive nor is it intended to thoroughly analyze different algorithms. We will specifically look at LASSO regression and best subset selection. 
+
+# Data
+
+For this overview, we'll use COVID-19 data. Our outcome variable is deaths per 100,000 people, and we have a number of explanatory variables from Opportunity Insights and PM COVID. For the purposes of demonstration, we won't use every single variable as it will be too computationally expensive. 
+
+```{r Load Data, include=TRUE}
+set.seed(59000)
+
+data_path <- 
+  '~/Desktop/GitHub/tutorials/Feature Selection/Data/Covid002.csv'
+data <- read.csv(data_path)
+
+# data dictionary explaining what variables mean 
+data_dictionary_path <- paste0(
+  '~/Desktop/GitHub/tutorials/Feature Selection/Data/',
+  'Variable Description.xlsx'
+)
+data_dict <- readxl::read_excel(path = data_dictionary_path)  
+```
+
+We'll keep the `deathspc` variable, all of the variables that come from `PM COVID`, and a random half of the `Opportunity Insights` variables (again, for computation reasons)
+
+```{r Select Variables, include=TRUE}
+final_vars <- c(
+  data_dict[data_dict$Source %in% 'PM_COVID', 'Variable', drop = TRUE],
+  data_dict |>
+    dplyr::filter(Source %in% 'Opportunity Insights') |>
+    dplyr::sample_frac(0.5) |>
+    dplyr::pull(Variable),
+  'deathspc'
+)  
+
+data <- data[, final_vars]
+```
+
+We'll also check to see if there are `NA` values in our data. Although common techniques include imputing the mean or the median, for this exercise we'll simply drop missing data from our data set.
+
+```{r Check and Drop Missing Variables, include=TRUE}
+purrr::map(.x = data, .f = function(column) { any(is.na(column)) }) |>
+  (\(variables) base::Filter(f = isTRUE , x = variables))() |>
+  names()
+
+data <- tidyr::drop_na(data)
+```
+
+# Train Test Split
+
+Next, we'll split our data into a training and testing set, so we can identify patterns in the training set and apply them to the testing set to see how it performs. We'll partition the data such that 80% will be used for training and 20% will be used for testing. Of course, we'll set our seed for reproducibility. 
+
+```{r Train Test Split, include=TRUE}
+sample <- sample(
+  x = c(TRUE, FALSE),
+  size = nrow(data), 
+  replace = TRUE, 
+  prob = c(0.8, 0.2)
+)
+
+train <- data[sample, ]
+test <- data[!sample, ]
+
+# Return training and testing dimensions
+purrr::map(.x = list(train, test), .f = dim) |>
+  purrr::set_names(c('train dimensions', 'test dimensions'))
+
+# Create targets and features for our training and testing set
+xtrain <- data.matrix(frame = train[, !names(train) %in% 'deathspc'])
+ytrain <- train$deathspc
+
+xtest <- data.matrix(frame = test[, !names(test) %in% 'deathspc'])
+ytest <- test$deathspc
+```
+
+# LASSO Regression
+
+At a high-level, LASSO regression shrinks coefficients all the way to 0 if they do not add information to our model. By shrinking them to 0, we can remove them from our model entirely, and we'll be left with a subset of our original features. 
+
+Coefficients are shrunk to 0 with the following equation where SSR stands for the sum of squared residuals:
+
+$$ SSR + (\lambda \times |\beta|) $$
+Recall that the goal of regression is to find the best fit line that minimizes our error (or sum of squared residuals). If we hold $\beta$ constant while increasing $\lambda$, then the result will always grow larger and larger which is counter to our goal of minimizing the residuals. The only way to minimize the outcome while $\lambda$ increases is to decrease $\beta$ until it reaches 0. By shrinking $\beta$ to 0, we've effectively removed it from the model because we're saying it has no effect on our outcome. Note that we don't want to use a negative value for $\beta$ because we're ultimately taking the absolute value of it which will ultimately increase our outcome when multiplying by an increasing $\lambda$. 
+
+To minimize the error term, $\beta$ must equal 0 if $\lambda$ is increasing. 
+
+What is the optimal value of $\lambda$ then? We turn to cross validation to identify it on our training data. We'll use the `cv.glmnet` function from the `glmnet` package, and set the `alpha` argument equal to 1. This is important because it specifies LASSO regression and not ridge regression.
+
+```{r Identify Optimal Lambda, include=TRUE}
+cv_lasso <- glmnet::cv.glmnet(
+  x = xtrain,
+  y = ytrain,
+  alpha = 1,
+  nfolds = 10,
+  keep = TRUE
+)
+
+```
+
+The nice thing about the output of `cv.glmnet` is that it allows us to create a plot of the log values of $\lambda$ and their corresponding mean squared error (MSE). The optimal value of $\lambda$ minimizes the MSE, and we can see that it corresponds to the dotted vertical line that is closer to the y-axis on the plot below. This value of $\lambda$ also corresponds to about 12 predictors which is much fewer than the 35 in our original model. 
+
+```{r Plot Lambda, include=TRUE}
+plot(cv_lasso)
+```
+
+We can also easily identify the minimum value of $\lambda$ and its corresponding MSE with the following
+
+```{r Identify Optimal Lambda and MSE, include=TRUE}
+cv_lasso$lambda.min
+min(cv_lasso$cvm)
+```
+
+And we can always verify that the MSE is correct on our end by manually calculating it ourselves:
+
+```{r Manual MSE, include=TRUE}
+# Helper function to calculate MSE
+get_mse <- function(x, y) { mean((x - y) ^ 2) }
+
+# This will return the same MSE as the training fold from cross-validation
+get_mse(
+  x = cv_lasso$fit.preval[, which(cv_lasso$lambda == cv_lasso$lambda.min)], 
+  y = ytrain
+)
+```
+
+Now that we have the optimal value of $\lambda$, we can fit the model to our training data and identify which features have been dropped from the model. These zeroed-out coefficeints are denoted by `.` in the `s0` column of our output.
+
+```{r Fit Training Model, include=TRUE}
+optimal_lasso <- glmnet::glmnet(
+  x = xtrain,
+  y = ytrain,
+  alpha = 1,
+  lambda = cv_lasso$lambda.min
+)
+
+optimal_lasso$beta
+```
+
+We can see that there are only 16 of the initial 33 features in our model that return estimates.
+
+We can of course also make predictions from our training data once our model has been fit:
+
+``` {r Make Training Predictions, include=TRUE}
+# Make predictions and calculate MSE
+train_predictions <- 
+  stats::predict(optimal_lasso, newx = xtrain, s = optimal_lasso$lambda)
+train_MSE <- get_mse(x = train_predictions, y = ytrain)
+
+train_MSE
+```
+
+And we can also do the same for the test data:
+
+```{r Fit Test Model, include=TRUE}
+optimal_lasso <- glmnet::glmnet(
+  x = xtrain,
+  y = ytrain,
+  alpha = 1,
+  lambda = cv_lasso$lambda.min
+)
+
+# Make predictions and calculate MSE
+test_predictions <- 
+  stats::predict(optimal_lasso, newx = xtest, s = optimal_lasso$lambda)
+test_MSE <- get_mse(x = test_predictions, y = ytest)
+
+test_MSE
+```
+
+Note that our testing MSE is similar to our training MSE suggesting that LASSO may be a good fit here. Ideally, we'd like the training MSE and testing MSE to be similar in practice to avoid over and under-fitting of our models.
+
+# Best Subset
+
+```{r Best Subset, inclue=TRUE}
+best_AIC <- bestglm::bestglm(Xy = train, IC = 'AIC', method = 'exhaustive')
+```
