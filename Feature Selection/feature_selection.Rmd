@@ -190,6 +190,44 @@ Note that our testing MSE is similar to our training MSE suggesting that LASSO m
 
 # Best Subset
 
+Next we turn to best subset for feature selection. As the name suggests, the procedure tests all the linear combinations of features and finds the optimal set of features according to a specified criteria. We will use `AIC` here instead of the sum of square residuals. This is because models with more variables will always have a smaller sum of square residuals - there are more explanatory factors at play to explain the variation in our outcome. 
+
+As a reminder, this is a computationally expensive method, as we're trying all possible combinations. 
+
+Running the below will test all combinations of variables, and then return the model coefficients with the SMALLEST AIC. 
+
 ```{r Best Subset, inclue=TRUE}
 best_AIC <- bestglm::bestglm(Xy = train, IC = 'AIC', method = 'exhaustive')
+best_AIC
 ```
+
+Using AIC as our criteria, the optimal model returns only 13 coefficients which is three less than the number of coefficients we had when using LASSO.
+
+We can then extract those coefficients, fit our linear model, and make predictions to compare our mean squared error against our LASSO estimate.
+
+```{r}
+# Get right hand side of linear regression formula
+features <- best_AIC$BestModel$coefficients |> 
+  names() |>
+  (\(variables) grep(pattern = '\\(', x = variables, value = TRUE, invert = TRUE))() |>
+  paste0(collapse = ' + ' )
+
+# Fit model
+optimal_linreg <- lm(formula = paste0('deathspc ~ ', features), data = train)
+
+# Make predictions
+yhat <- predict(optimal_linreg, as.data.frame(xtest))
+
+get_mse(x = yhat, y = ytest)
+```
+
+According to the MSE, best subset selection performed slightly better than LASSO, and best subset returned a marginally fewer set of predictors, suggesting that best subset might be the better fit for making predictions on our data.
+
+# Conclusion
+
+This document is not intended to be an exhaustive comparison of feature selection methods as there are other basic criteria for linear regression that we didn't even touch upon (such as are predictors and the outcome linearly correlated?), but this document intended to showcase the motivations for selecting a fraction of features in a machine learning model alongside model evaluation. 
+
+It's important to consider the following:
+
+1. How long will the selection procedure take?
+2. What metric will I use to compare selection procedures? Am I interested in interpreting the model in plain English? Or am I interested in making the most accurate predictions regardless of interpretation? 
